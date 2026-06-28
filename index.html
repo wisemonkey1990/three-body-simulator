@@ -1,0 +1,754 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>三体运动模拟器</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body {
+    width:100%; height:100%; overflow:hidden;
+    background:#02030a;
+    font-family: -apple-system, "Microsoft YaHei", "Segoe UI", sans-serif;
+    color:#e8ecff;
+    user-select:none;
+  }
+  canvas { display:block; position:absolute; top:0; left:0; }
+  #bg { z-index:0; }
+  #sim { z-index:1; }
+
+  /* 顶部标题 */
+  .title-bar {
+    position:absolute; top:22px; left:28px; z-index:10;
+    pointer-events:none;
+  }
+  .title-bar h1 {
+    font-size:24px; font-weight:200; letter-spacing:10px;
+    color:#a8b4ff; text-shadow:0 0 24px rgba(120,140,255,.55);
+  }
+  .title-bar p {
+    font-size:10px; color:#5a6890; letter-spacing:4px; margin-top:6px;
+  }
+
+  /* 控制面板 */
+  .panel {
+    position:absolute; top:22px; right:22px; z-index:10;
+    width:300px; max-height: calc(100vh - 44px);
+    background: rgba(14,18,40,.58);
+    backdrop-filter: blur(16px) saturate(1.2);
+    -webkit-backdrop-filter: blur(16px) saturate(1.2);
+    border:1px solid rgba(120,140,255,.16);
+    border-radius:16px;
+    padding:18px 18px 20px;
+    overflow-y:auto;
+    box-shadow:0 10px 50px rgba(0,0,0,.55);
+    transition: max-height .3s ease;
+  }
+  .panel::-webkit-scrollbar { width:5px; }
+  .panel::-webkit-scrollbar-thumb { background:rgba(120,140,255,.25); border-radius:3px; }
+  .panel.collapsed { max-height:54px; overflow:hidden; }
+  .panel.collapsed .panel-content { display:none; }
+
+  .panel h2 {
+    font-size:11px; letter-spacing:3px; color:#7e8cc4;
+    margin:6px 0 10px; padding-bottom:7px;
+    border-bottom:1px solid rgba(120,140,255,.12);
+    text-transform:uppercase; font-weight:500;
+  }
+  .panel h2:first-of-type { margin-top:0; }
+  .group { margin-bottom:14px; }
+
+  .preset-grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .preset-btn {
+    padding:9px 6px; font-size:11px; letter-spacing:1px;
+    background:rgba(38,48,90,.42);
+    border:1px solid rgba(120,140,255,.18);
+    color:#bcc4ec; border-radius:7px; cursor:pointer;
+    transition:all .18s; font-family:inherit;
+  }
+  .preset-btn:hover { background:rgba(70,90,160,.5); border-color:rgba(140,160,255,.45); }
+  .preset-btn.active {
+    background:linear-gradient(135deg,rgba(100,130,255,.6),rgba(170,110,255,.45));
+    border-color:rgba(190,200,255,.65); color:#fff;
+    box-shadow:0 0 14px rgba(120,140,255,.3);
+  }
+
+  .control { margin-bottom:11px; }
+  .control label {
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:11px; color:#94a0cc; margin-bottom:5px; letter-spacing:1px;
+  }
+  .control label .val { color:#e8ecff; font-family:"Consolas","Courier New",monospace; font-size:11px; }
+
+  input[type=range] {
+    width:100%; height:4px; background:rgba(70,82,130,.45);
+    border-radius:2px; appearance:none; -webkit-appearance:none; outline:none;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance:none; width:14px; height:14px; border-radius:50%;
+    background:linear-gradient(135deg,#8ab4ff,#b48aff);
+    cursor:pointer; box-shadow:0 0 10px rgba(140,160,255,.65);
+    border:none;
+  }
+  input[type=range]::-moz-range-thumb {
+    width:14px; height:14px; border-radius:50%; border:none;
+    background:linear-gradient(135deg,#8ab4ff,#b48aff);
+    cursor:pointer; box-shadow:0 0 10px rgba(140,160,255,.65);
+  }
+
+  .btn-row { display:flex; gap:6px; margin-top:8px; }
+  .btn {
+    flex:1; padding:9px 0; font-size:11px; letter-spacing:1px;
+    background:rgba(38,48,90,.42);
+    border:1px solid rgba(120,140,255,.18);
+    color:#bcc4ec; border-radius:7px; cursor:pointer;
+    transition:all .18s; font-family:inherit;
+  }
+  .btn:hover { background:rgba(70,90,160,.5); }
+  .btn.primary {
+    background:linear-gradient(135deg,rgba(100,130,255,.6),rgba(170,110,255,.45));
+    border-color:rgba(190,200,255,.65); color:#fff;
+  }
+
+  /* 数据监控 */
+  .stats {
+    position:absolute; bottom:22px; left:28px; z-index:10;
+    font-family:"Consolas","Courier New",monospace; font-size:11px;
+    color:#5a6890; letter-spacing:.5px; line-height:1.9;
+    pointer-events:none;
+  }
+  .stats span { color:#a8b4ff; }
+  .stats .ok { color:#7adfa0; }
+  .stats .warn { color:#ffb45a; }
+  .stats .bad { color:#ff6a7a; }
+
+  .hint {
+    position:absolute; bottom:22px; right:28px; z-index:10;
+    font-size:10px; color:#3e4a6a; letter-spacing:1px;
+    pointer-events:none;
+  }
+
+  .collapse-btn {
+    position:absolute; top:14px; right:14px;
+    width:24px; height:24px; border-radius:50%;
+    background:rgba(38,48,90,.6); border:1px solid rgba(120,140,255,.22);
+    color:#a8b4ff; cursor:pointer; font-size:15px; line-height:1;
+    display:flex; align-items:center; justify-content:center;
+    transition:all .18s;
+  }
+  .collapse-btn:hover { background:rgba(70,90,160,.6); }
+</style>
+</head>
+<body>
+<canvas id="bg"></canvas>
+<canvas id="sim"></canvas>
+
+<div class="title-bar">
+  <h1>三&nbsp;体</h1>
+  <p>THREE&nbsp;·&nbsp;BODY&nbsp;·&nbsp;PROBLEM</p>
+</div>
+
+<div class="panel" id="panel">
+  <button class="collapse-btn" id="collapseBtn">−</button>
+
+  <div class="panel-content">
+    <h2>轨道预设</h2>
+    <div class="group">
+      <div class="preset-grid">
+        <button class="preset-btn active" data-preset="figure8">8字形</button>
+        <button class="preset-btn" data-preset="lagrange">拉格朗日</button>
+        <button class="preset-btn" data-preset="hierarchy">日地月</button>
+        <button class="preset-btn" data-preset="chaos">混沌</button>
+      </div>
+    </div>
+
+    <h2>物理参数</h2>
+    <div class="group">
+      <div class="control">
+        <label>时间流速 <span class="val" id="speedVal">1.00x</span></label>
+        <input type="range" id="speed" min="0" max="500" value="100">
+      </div>
+      <div class="control">
+        <label>引力常数 G <span class="val" id="gravityVal">1.000</span></label>
+        <input type="range" id="gravity" min="0" max="300" value="100">
+      </div>
+      <div class="control">
+        <label>质量 m₁ <span class="val" id="m1Val">1.00</span></label>
+        <input type="range" id="m1" min="5" max="500" value="100">
+      </div>
+      <div class="control">
+        <label>质量 m₂ <span class="val" id="m2Val">1.00</span></label>
+        <input type="range" id="m2" min="5" max="500" value="100">
+      </div>
+      <div class="control">
+        <label>质量 m₃ <span class="val" id="m3Val">1.00</span></label>
+        <input type="range" id="m3" min="5" max="500" value="100">
+      </div>
+    </div>
+
+    <h2>显示设置</h2>
+    <div class="group">
+      <div class="control">
+        <label>轨迹长度 <span class="val" id="trailVal">500</span></label>
+        <input type="range" id="trail" min="0" max="2000" value="500" step="50">
+      </div>
+      <div class="control">
+        <label>缩放 <span class="val" id="zoomVal">1.00x</span></label>
+        <input type="range" id="zoom" min="20" max="400" value="100">
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="trailToggle">轨迹: 开</button>
+        <button class="btn" id="velToggle">速度矢量: 关</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="followToggle">居中跟随: 开</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" id="autoFitToggle">自动适配: 开</button>
+      </div>
+    </div>
+
+    <h2>控制</h2>
+    <div class="group">
+      <div class="btn-row">
+        <button class="btn primary" id="playBtn">暂停</button>
+        <button class="btn" id="resetBtn">重置</button>
+      </div>
+      <div class="btn-row">
+        <button class="btn" id="clearBtn">清空轨迹</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="stats" id="stats">
+  总能量 E: <span id="energy">0.000</span><br>
+  动量 |P|: <span id="momentum">0.000</span><br>
+  角动量 L: <span id="angMom">0.000</span><br>
+  模拟时间 t: <span id="simTime">0.00</span>
+</div>
+
+<div class="hint">拖拽天体调整位置 · 滚轮缩放 · 自动适配保证三天体可见</div>
+
+<script>
+(() => {
+  // ============== 画布初始化 ==============
+  const bg = document.getElementById('bg');
+  const sim = document.getElementById('sim');
+  const bgCtx = bg.getContext('2d');
+  const ctx = sim.getContext('2d');
+
+  let W = 0, H = 0;
+  let stars = [], nebulae = [];
+
+  function resize() {
+    W = window.innerWidth; H = window.innerHeight;
+    [bg, sim].forEach(c => { c.width = W; c.height = H; });
+    initStars();
+    drawBackground();
+  }
+  window.addEventListener('resize', resize);
+
+  // ============== 星空 & 星云背景 ==============
+  function initStars() {
+    stars = []; nebulae = [];
+    const count = Math.floor((W * H) / 2800);
+    for (let i = 0; i < count; i++) {
+      const t = Math.random();
+      stars.push({
+        x: Math.random() * W, y: Math.random() * H,
+        r: t < 0.92 ? Math.random() * 0.9 + 0.2 : Math.random() * 1.6 + 0.8,
+        a: Math.random() * 0.7 + 0.3,
+        tw: Math.random() * 0.015 + 0.003,
+        ph: Math.random() * Math.PI * 2,
+        col: Math.random() < 0.12 ? '255,200,180'
+           : (Math.random() < 0.22 ? '180,200,255' : '230,235,255')
+      });
+    }
+    // 星云团
+    const nebColors = [225, 250, 280, 310, 200];
+    for (let i = 0; i < 5; i++) {
+      nebulae.push({
+        x: Math.random() * W, y: Math.random() * H,
+        r: Math.random() * 320 + 220,
+        h: nebColors[i], a: Math.random() * 0.07 + 0.04
+      });
+    }
+  }
+
+  function drawBackground(phase = 0) {
+    bgCtx.fillStyle = '#02030a';
+    bgCtx.fillRect(0, 0, W, H);
+    // 星云
+    nebulae.forEach(n => {
+      const g = bgCtx.createRadialGradient(n.x, n.y, 0, n.x, n.y, n.r);
+      g.addColorStop(0, `hsla(${n.h},70%,55%,${n.a})`);
+      g.addColorStop(0.5, `hsla(${n.h + 30},60%,40%,${n.a * 0.4})`);
+      g.addColorStop(1, 'hsla(240,60%,30%,0)');
+      bgCtx.fillStyle = g;
+      bgCtx.fillRect(n.x - n.r, n.y - n.r, n.r * 2, n.r * 2);
+    });
+    // 银河带
+    bgCtx.save();
+    bgCtx.translate(W / 2, H / 2);
+    bgCtx.rotate(-0.35);
+    const galaxy = bgCtx.createLinearGradient(-W, 0, W, 0);
+    galaxy.addColorStop(0, 'rgba(90,100,170,0)');
+    galaxy.addColorStop(0.5, 'rgba(130,110,190,0.07)');
+    galaxy.addColorStop(1, 'rgba(90,100,170,0)');
+    bgCtx.fillStyle = galaxy;
+    bgCtx.fillRect(-W, -H * 0.12, W * 2, H * 0.24);
+    bgCtx.restore();
+    // 星点
+    stars.forEach(s => {
+      const a = s.a * (0.55 + 0.45 * Math.sin(phase * 2 + s.ph));
+      bgCtx.fillStyle = `rgba(${s.col},${a})`;
+      bgCtx.beginPath();
+      bgCtx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      bgCtx.fill();
+      if (s.r > 1.2) { // 大星十字光
+        bgCtx.strokeStyle = `rgba(${s.col},${a * 0.4})`;
+        bgCtx.lineWidth = 0.5;
+        bgCtx.beginPath();
+        bgCtx.moveTo(s.x - s.r * 3, s.y); bgCtx.lineTo(s.x + s.r * 3, s.y);
+        bgCtx.moveTo(s.x, s.y - s.r * 3); bgCtx.lineTo(s.x, s.y + s.r * 3);
+        bgCtx.stroke();
+      }
+    });
+  }
+
+  // ============== 物理状态 ==============
+  let bodies = [];
+  let trails = [[], [], []];
+  let preset = 'figure8';
+  let G = 1.0;
+  let timeScale = 1.0;
+  let zoom = 1.0;          // 实际生效缩放（用于 w2s/s2w）
+  let userZoom = 1.0;      // 滑块设定的缩放
+  let autoFit = true;      // 自动适配：保证三天体始终可见
+  let trailLen = 500;
+  let showTrail = true;
+  let showVel = false;
+  let paused = false;
+  let followCenter = true;   // 质心居中跟随
+  let viewCx = 0, viewCy = 0; // 当前视图中心（世界坐标），平滑插值
+  let simTime = 0;
+  let initialE = 0, initialP = 0, initialL = 0;
+
+  const colors = [
+    { core: '#bce8ff', glow: '#4a9eff' }, // 青
+    { core: '#ffd6a8', glow: '#ff7a3a' }, // 橙
+    { core: '#fff3a8', glow: '#ffd83a' }  // 金
+  ];
+
+  const EPS2 = 0.0025; // 软化平方，防止奇点
+
+  // ---- 预设初始条件 ----
+  function loadPreset(name) {
+    preset = name;
+    let bs = [];
+    let masses = [1, 1, 1];
+    if (name === 'figure8') {
+      // Chenciner-Montgomery 8字形解 (G=1, m=1)
+      bs = [
+        { x:-0.97000436, y: 0.24308753, vx: 0.4662036850, vy: 0.4323657300 },
+        { x: 0.97000436, y:-0.24308753, vx: 0.4662036850, vy: 0.4323657300 },
+        { x: 0,          y: 0,          vx:-0.93240737,   vy:-0.86473146   }
+      ];
+    } else if (name === 'lagrange') {
+      // 等边三角形拉格朗日解：绕中心匀速旋转
+      const R = 0.75;
+      const L = R * Math.sqrt(3);
+      const vref = Math.sqrt(3 * G / (L * L * L)) * R;
+      const angs = [Math.PI / 2, Math.PI / 2 + 2 * Math.PI / 3, Math.PI / 2 + 4 * Math.PI / 3];
+      bs = angs.map(a => ({
+        x: R * Math.cos(a), y: R * Math.sin(a),
+        vx: -vref * Math.sin(a), vy: vref * Math.cos(a)
+      }));
+    } else if (name === 'hierarchy') {
+      // 日地月层级系统：大质量中心 + 行星 + 卫星
+      const M = 1.0;
+      const r1 = 1.0;
+      const v1 = Math.sqrt(G * M / r1);
+      const r2 = 0.12;
+      const v2 = Math.sqrt(G * 0.2 / r2);
+      bs = [
+        { x: 0, y: 0, vx: 0, vy: 0 },                                  // 恒星
+        { x: r1, y: 0, vx: 0, vy: v1 },                                // 行星
+        { x: r1 + r2, y: 0, vx: 0, vy: v1 + v2 }                       // 卫星
+      ];
+      masses = [1.0, 0.2, 0.05];
+    } else if (name === 'chaos') {
+      // 敏感初值，快速进入混沌
+      bs = [
+        { x:-1.0, y: 0,    vx: 0.25, vy: 0.30 },
+        { x: 1.0, y: 0,    vx:-0.25, vy: 0.30 },
+        { x: 0,   y: 0.6,  vx: 0,    vy:-0.60 }
+      ];
+    }
+    bs.forEach((b, i) => b.m = masses[i]);
+    bodies = bs;
+    syncMassSliders(masses);
+    trails = [[], [], []];
+    simTime = 0;
+    // 重置视图中心到新质心
+    const c = centroid();
+    viewCx = c.x; viewCy = c.y;
+    recordInvariants();
+  }
+
+  function syncMassSliders(ms) {
+    ms.forEach((m, i) => {
+      const id = 'm' + (i + 1);
+      const el = document.getElementById(id);
+      el.value = Math.max(+el.min, Math.min(+el.max, m * 100));
+      document.getElementById(id + 'Val').textContent = m.toFixed(2);
+    });
+  }
+
+  function recordInvariants() {
+    initialE = totalEnergy();
+    const p = totalMomentum();
+    initialP = Math.hypot(p.x, p.y);
+    initialL = totalAngMom();
+  }
+
+  // ---- 物理积分 ----
+  function accels() {
+    const a = bodies.map(() => ({ x: 0, y: 0 }));
+    for (let i = 0; i < 3; i++) {
+      for (let j = 0; j < 3; j++) {
+        if (i === j) continue;
+        const dx = bodies[j].x - bodies[i].x;
+        const dy = bodies[j].y - bodies[i].y;
+        const r2 = dx * dx + dy * dy + EPS2;
+        const r3 = Math.sqrt(r2) * r2;
+        const f = G * bodies[j].m / r3;
+        a[i].x += f * dx; a[i].y += f * dy;
+      }
+    }
+    return a;
+  }
+
+  // Velocity Verlet：能量守恒优于显式 Euler
+  function step(dt) {
+    const a0 = accels();
+    for (let i = 0; i < 3; i++) {
+      bodies[i].x += bodies[i].vx * dt + 0.5 * a0[i].x * dt * dt;
+      bodies[i].y += bodies[i].vy * dt + 0.5 * a0[i].y * dt * dt;
+    }
+    const a1 = accels();
+    for (let i = 0; i < 3; i++) {
+      bodies[i].vx += 0.5 * (a0[i].x + a1[i].x) * dt;
+      bodies[i].vy += 0.5 * (a0[i].y + a1[i].y) * dt;
+    }
+    simTime += dt;
+  }
+
+  function totalEnergy() {
+    let ke = 0, pe = 0;
+    for (let i = 0; i < 3; i++) {
+      ke += 0.5 * bodies[i].m * (bodies[i].vx ** 2 + bodies[i].vy ** 2);
+      for (let j = i + 1; j < 3; j++) {
+        const dx = bodies[j].x - bodies[i].x;
+        const dy = bodies[j].y - bodies[i].y;
+        const r = Math.sqrt(dx * dx + dy * dy + EPS2);
+        pe -= G * bodies[i].m * bodies[j].m / r;
+      }
+    }
+    return ke + pe;
+  }
+  function totalMomentum() {
+    let px = 0, py = 0;
+    for (const b of bodies) { px += b.m * b.vx; py += b.m * b.vy; }
+    return { x: px, y: py };
+  }
+  function totalAngMom() {
+    let L = 0;
+    for (const b of bodies) L += b.m * (b.x * b.vy - b.y * b.vx);
+    return L;
+  }
+
+  // ============== 渲染 ==============
+  const SCALE = 180; // 1 世界单位 = 180px（zoom=1 时）
+
+  // 质心（质量加权）
+  function centroid() {
+    let M = 0, cx = 0, cy = 0;
+    for (const b of bodies) { M += b.m; cx += b.m * b.x; cy += b.m * b.y; }
+    return { x: cx / M, y: cy / M };
+  }
+
+  // 三天体相对质心的半包围范围（用于自动适配缩放）
+  function bboxExtent() {
+    const c = centroid();
+    let hx = 0, hy = 0;
+    for (const b of bodies) {
+      hx = Math.max(hx, Math.abs(b.x - c.x));
+      hy = Math.max(hy, Math.abs(b.y - c.y));
+    }
+    return { hx, hy };
+  }
+
+  // 计算保证三天体可见的最大允许缩放
+  function maxAllowedZoom() {
+    const { hx, hy } = bboxExtent();
+    const margin = 95; // 留给面板/边距的像素
+    const ax = (W / 2 - margin) / Math.max(0.02, hx * SCALE);
+    const ay = (H / 2 - margin) / Math.max(0.02, hy * SCALE);
+    return Math.max(0.12, Math.min(ax, ay));
+  }
+
+  function w2s(x, y) {
+    const ox = followCenter ? viewCx : 0;
+    const oy = followCenter ? viewCy : 0;
+    return [W / 2 + (x - ox) * SCALE * zoom, H / 2 + (y - oy) * SCALE * zoom];
+  }
+  function s2w(sx, sy) {
+    const ox = followCenter ? viewCx : 0;
+    const oy = followCenter ? viewCy : 0;
+    return [(sx - W / 2) / (SCALE * zoom) + ox, (sy - H / 2) / (SCALE * zoom) + oy];
+  }
+
+  function drawBody(b, col) {
+    const [sx, sy] = w2s(b.x, b.y);
+    const r = Math.max(4, Math.cbrt(b.m) * 6.5);
+    // 外层光晕
+    const halo = ctx.createRadialGradient(sx, sy, 0, sx, sy, r * 7);
+    halo.addColorStop(0, col.glow + 'b0');
+    halo.addColorStop(0.25, col.glow + '48');
+    halo.addColorStop(1, col.glow + '00');
+    ctx.fillStyle = halo;
+    ctx.beginPath(); ctx.arc(sx, sy, r * 7, 0, Math.PI * 2); ctx.fill();
+    // 核心球体
+    const core = ctx.createRadialGradient(sx - r * 0.35, sy - r * 0.35, 0, sx, sy, r);
+    core.addColorStop(0, '#ffffff');
+    core.addColorStop(0.35, col.core);
+    core.addColorStop(1, col.glow);
+    ctx.fillStyle = core;
+    ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.fill();
+    return [sx, sy, r];
+  }
+
+  function drawTrail(idx, col) {
+    const t = trails[idx];
+    if (t.length < 2) return;
+    ctx.lineCap = 'round';
+    for (let i = 1; i < t.length; i++) {
+      const a = i / t.length;
+      const [x1, y1] = w2s(t[i - 1].x, t[i - 1].y);
+      const [x2, y2] = w2s(t[i].x, t[i].y);
+      ctx.strokeStyle = col.glow + Math.floor(a * 200).toString(16).padStart(2, '0');
+      ctx.lineWidth = a * 2.4 + 0.2;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1); ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+  }
+
+  function drawVel(b, col) {
+    const vlen = Math.hypot(b.vx, b.vy);
+    if (vlen < 1e-6) return;
+    const [sx, sy] = w2s(b.x, b.y);
+    const k = 55 * zoom;
+    const ex = sx + b.vx * k, ey = sy + b.vy * k;
+    ctx.strokeStyle = col.glow + 'b0';
+    ctx.lineWidth = 1.4;
+    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(ex, ey); ctx.stroke();
+    const ang = Math.atan2(ey - sy, ex - sx);
+    ctx.beginPath();
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 7 * Math.cos(ang - 0.4), ey - 7 * Math.sin(ang - 0.4));
+    ctx.moveTo(ex, ey);
+    ctx.lineTo(ex - 7 * Math.cos(ang + 0.4), ey - 7 * Math.sin(ang + 0.4));
+    ctx.stroke();
+  }
+
+  let frame = 0;
+  let bgPhase = 0;
+  function render() {
+    // 背景每 18 帧重绘一次（星星缓慢闪烁）
+    if (frame % 18 === 0) { bgPhase += 0.5; drawBackground(bgPhase); }
+    ctx.clearRect(0, 0, W, H);
+
+    if (showTrail) for (let i = 0; i < 3; i++) drawTrail(i, colors[i]);
+
+    const pos = [];
+    for (let i = 0; i < 3; i++) pos.push(drawBody(bodies[i], colors[i]));
+
+    if (showVel) for (let i = 0; i < 3; i++) drawVel(bodies[i], colors[i]);
+
+    // 天体间细连线
+    ctx.strokeStyle = 'rgba(120,140,255,0.07)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 3; i++)
+      for (let j = i + 1; j < 3; j++) {
+        ctx.beginPath();
+        ctx.moveTo(pos[i][0], pos[i][1]);
+        ctx.lineTo(pos[j][0], pos[j][1]);
+        ctx.stroke();
+      }
+    frame++;
+  }
+
+  // ============== 主循环 ==============
+  let last = performance.now();
+  function loop(now) {
+    const realDt = Math.min(0.05, (now - last) / 1000);
+    last = now;
+    if (!paused) {
+      const target = realDt * timeScale;
+      const substeps = Math.max(1, Math.ceil(target / 0.005));
+      const dt = target / substeps;
+      for (let s = 0; s < substeps; s++) {
+        step(dt);
+        if (s === substeps - 1) {
+          for (let i = 0; i < 3; i++) {
+            trails[i].push({ x: bodies[i].x, y: bodies[i].y });
+            while (trails[i].length > trailLen) trails[i].shift();
+          }
+        }
+      }
+    }
+    // 视图中心平滑跟随质心（拖拽时锁定，避免天体在鼠标下"滑动"；帧率无关平滑）
+    if (followCenter && drag === null && bodies.length === 3) {
+      const c = centroid();
+      const k = 1 - Math.pow(0.001, realDt); // 帧率无关的平滑因子
+      viewCx += (c.x - viewCx) * k;
+      viewCy += (c.y - viewCy) * k;
+    }
+    // 自动适配缩放：保证三天体始终可见。autoFit 时取"用户缩放"与"最大允许缩放"的较小值
+    // —— 正常情况下沿用用户缩放，只有当三天体将超出视野时才自动缩小。
+    if (bodies.length === 3) {
+      const target = autoFit ? Math.min(userZoom, maxAllowedZoom()) : userZoom;
+      const kz = 1 - Math.pow(0.005, realDt); // 平滑因子，约 0.4s 收敛
+      zoom += (target - zoom) * kz;
+    }
+    render();
+    updateStats();
+    requestAnimationFrame(loop);
+  }
+
+  function updateStats() {
+    const E = totalEnergy();
+    const p = totalMomentum();
+    const L = totalAngMom();
+    const dE = initialE !== 0 ? Math.abs((E - initialE) / initialE) : Math.abs(E);
+    const dP = initialP !== 0 ? Math.abs((Math.hypot(p.x, p.y) - initialP) / initialP) : 0;
+    const dL = initialL !== 0 ? Math.abs((L - initialL) / initialL) : 0;
+    const cls = v => v < 0.01 ? 'ok' : (v < 0.1 ? 'warn' : 'bad');
+    document.getElementById('energy').innerHTML =
+      `${E.toFixed(3)} <span class="${cls(dE)}">Δ${(dE * 100).toFixed(2)}%</span>`;
+    document.getElementById('momentum').innerHTML =
+      `${Math.hypot(p.x, p.y).toFixed(3)} <span class="${cls(dP)}">Δ${(dP * 100).toFixed(2)}%</span>`;
+    document.getElementById('angMom').innerHTML =
+      `${L.toFixed(3)} <span class="${cls(dL)}">Δ${(dL * 100).toFixed(2)}%</span>`;
+    document.getElementById('simTime').textContent = simTime.toFixed(2);
+  }
+
+  // ============== 控件绑定 ==============
+  function bindRange(id, fn, fmt) {
+    const el = document.getElementById(id);
+    const valEl = document.getElementById(id + 'Val');
+    el.addEventListener('input', () => {
+      const v = +el.value;
+      fn(v);
+      if (valEl) valEl.textContent = fmt(v);
+    });
+  }
+  bindRange('speed',   v => { timeScale = v / 100; },           v => (v / 100).toFixed(2) + 'x');
+  bindRange('gravity', v => { G = v / 100; },                    v => (v / 100).toFixed(3));
+  bindRange('zoom',    v => { userZoom = v / 100; },             v => (v / 100).toFixed(2) + 'x');
+  bindRange('trail',   v => { trailLen = v; },                   v => v);
+  bindRange('m1', v => { if (bodies[0]) bodies[0].m = v / 100; }, v => (v / 100).toFixed(2));
+  bindRange('m2', v => { if (bodies[1]) bodies[1].m = v / 100; }, v => (v / 100).toFixed(2));
+  bindRange('m3', v => { if (bodies[2]) bodies[2].m = v / 100; }, v => (v / 100).toFixed(2));
+
+  document.querySelectorAll('.preset-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.preset-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      loadPreset(btn.dataset.preset);
+      if (paused) { paused = false; document.getElementById('playBtn').textContent = '暂停'; }
+    });
+  });
+
+  document.getElementById('playBtn').addEventListener('click', e => {
+    paused = !paused;
+    e.target.textContent = paused ? '播放' : '暂停';
+  });
+  document.getElementById('resetBtn').addEventListener('click', () => {
+    loadPreset(document.querySelector('.preset-btn.active').dataset.preset);
+  });
+  document.getElementById('clearBtn').addEventListener('click', () => { trails = [[], [], []]; });
+  document.getElementById('trailToggle').addEventListener('click', e => {
+    showTrail = !showTrail;
+    e.target.textContent = '轨迹: ' + (showTrail ? '开' : '关');
+    e.target.classList.toggle('primary', showTrail);
+  });
+  document.getElementById('velToggle').addEventListener('click', e => {
+    showVel = !showVel;
+    e.target.textContent = '速度矢量: ' + (showVel ? '开' : '关');
+    e.target.classList.toggle('primary', showVel);
+  });
+  document.getElementById('followToggle').addEventListener('click', e => {
+    followCenter = !followCenter;
+    e.target.textContent = '居中跟随: ' + (followCenter ? '开' : '关');
+    e.target.classList.toggle('primary', followCenter);
+    if (followCenter && bodies.length === 3) {
+      const c = centroid(); viewCx = c.x; viewCy = c.y;
+    }
+  });
+  document.getElementById('autoFitToggle').addEventListener('click', e => {
+    autoFit = !autoFit;
+    e.target.textContent = '自动适配: ' + (autoFit ? '开' : '关');
+    e.target.classList.toggle('primary', autoFit);
+  });
+  document.getElementById('collapseBtn').addEventListener('click', e => {
+    const p = document.getElementById('panel');
+    p.classList.toggle('collapsed');
+    e.target.textContent = p.classList.contains('collapsed') ? '+' : '−';
+  });
+
+  // ---- 鼠标拖拽天体 ----
+  let drag = null;
+  sim.addEventListener('mousedown', e => {
+    const [wx, wy] = s2w(e.clientX, e.clientY);
+    for (let i = 0; i < 3; i++) {
+      const dx = bodies[i].x - wx, dy = bodies[i].y - wy;
+      const hitR = 0.12 / Math.max(0.5, zoom);
+      if (dx * dx + dy * dy < hitR * hitR) {
+        drag = i;
+        if (!paused) { paused = true; document.getElementById('playBtn').textContent = '播放'; }
+        break;
+      }
+    }
+  });
+  window.addEventListener('mousemove', e => {
+    if (drag === null) return;
+    const [wx, wy] = s2w(e.clientX, e.clientY);
+    bodies[drag].x = wx; bodies[drag].y = wy;
+    bodies[drag].vx = 0; bodies[drag].vy = 0;
+    trails = [[], [], []];
+    recordInvariants();
+  });
+  window.addEventListener('mouseup', () => { drag = null; });
+
+  // ---- 滚轮缩放（调整用户缩放，autoFit 会自动夹紧到可见范围）----
+  sim.addEventListener('wheel', e => {
+    e.preventDefault();
+    const delta = e.deltaY > 0 ? -6 : 6;
+    const z = document.getElementById('zoom');
+    z.value = Math.max(+z.min, Math.min(+z.max, +z.value + delta));
+    userZoom = +z.value / 100;
+    document.getElementById('zoomVal').textContent = userZoom.toFixed(2) + 'x';
+  }, { passive: false });
+
+  // ============== 启动 ==============
+  resize();
+  loadPreset('figure8');
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
